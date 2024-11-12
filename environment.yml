@@ -1,0 +1,15 @@
+name: essos_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - jax
+  - jaxlib
+  - optax
+  - chex
+  - scipy
+  - tqdm
+  - matplotlib
+  - pip
+  - pip:
+      - bayesian-optimization
