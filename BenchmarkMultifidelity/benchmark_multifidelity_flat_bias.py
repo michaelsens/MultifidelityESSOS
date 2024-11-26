@@ -77,7 +77,9 @@ def callback(x):
     iteration += 1
 
 x0 = np.array([0,.1])
-result = scipy.optimize.minimize(multifidelity_loss, x0, method='L-BFGS-B', callback=callback, options={'ftol': 1e-10, 'gtol': 1e-6})
+bounds = [(-.1, .2), (-.1, .2)]
+
+result = scipy.optimize.minimize(multifidelity_loss, x0, method='L-BFGS-B', bounds=bounds, callback=callback, options={'ftol': 1e-10, 'gtol': 1e-6})
 
 print("Optimization Results:")
 print(f"Optimal Solution: {result.x}")
