@@ -76,28 +76,23 @@ def callback(x):
 
     iteration += 1
 
-x0 = np.array([0.0, 0.1])
-bounds = [(-0.1, 0.2), (-0.1, 0.2)]
-
-result = scipy.optimize.minimize(
-    multifidelity_loss,
-    x0,
-    method='L-BFGS-B',
-    bounds=bounds,
-    callback=callback,
-    options={'ftol': 1e-10, 'gtol': 1e-6}
-)
-
+x0 = np.array([0,.1])
+result = scipy.optimize.minimize(multifidelity_loss, x0, method='L-BFGS-B', callback=callback, options={'ftol': 1e-10, 'gtol': 1e-6})
 
 print("Optimization Results:")
 print(f"Optimal Solution: {result.x}")
 print(f"Optimal Loss: {result.fun}")
 
 D = 100
-x1 = np.linspace(bounds[0][0], bounds[0][1], D)
-x2 = np.linspace(bounds[1][0], bounds[1][1], D)
+
+x1 = np.linspace(-1, 1, D)
+x2 = np.linspace(-1, 1, D)
+x1 = np.linspace(-.1, .2, D)
+x2 = np.linspace(-.1, .2, D)
+
+
 X1, X2 = np.meshgrid(x1, x2)
-Z = np.array([[f1(np.array([x, y])) + e_r(np.array([x, y]), phi=10000) for x, y in zip(row1, row2)] for row1, row2 in zip(X1, X2)])
+Z = np.array([[f1(np.array([x1, x2])) for x1, x2 in zip(row1, row2)] for row1, row2 in zip(X1, X2)])
 
 plt.figure()
 contour = plt.contourf(X1, X2, Z, cmap='coolwarm', levels = 10)
