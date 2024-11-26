@@ -26,7 +26,8 @@ def e_r(x, x_star=np.array([0.1, 0.1]), theta=0.2, phi = 10000):
 iteration = 0
 bias = 0
 objective_value = []
-first_iter = False
+location_step = []
+first_iter = True
 
 def high_fidelity_loss(x):
     return f1(x) + e_r(x, phi=10000)
@@ -36,6 +37,7 @@ def low_fidelity_loss(x):
 
 def multifidelity_loss(x):
     global bias, first_iter
+    
     if first_iter:
         hf_loss = high_fidelity_loss(x)
         lf_loss = low_fidelity_loss(x)
@@ -59,7 +61,7 @@ def multifidelity_loss(x):
     return mf_loss
 
 def callback(x):
-    global iteration, bias, objective_value
+    global iteration, bias, objective_value, location_step
 
     hf_loss = high_fidelity_loss(x)
     lf_loss = low_fidelity_loss(x)
@@ -67,6 +69,7 @@ def callback(x):
 
     mf_loss = lf_loss + bias
     objective_value.append(mf_loss)
+    location_step.append(x)
 
     print(f"Iteration {iteration}:")
     print(f"  HF Loss: {hf_loss}")
@@ -76,10 +79,11 @@ def callback(x):
 
     iteration += 1
 
-x0 = np.array([0,.1])
+x0 = np.array([.01,.095])
+
 bounds = [(-.1, .2), (-.1, .2)]
 
-result = scipy.optimize.minimize(multifidelity_loss, x0, method='L-BFGS-B', bounds=bounds, callback=callback, options={'ftol': 1e-10, 'gtol': 1e-6})
+result = scipy.optimize.minimize(multifidelity_loss, x0, method='L-BFGS-B', bounds=bounds, callback=callback, options={'ftol': 1e-10, 'gtol': 1e-6, 'eps': 1e-8 })
 
 print("Optimization Results:")
 print(f"Optimal Solution: {result.x}")
@@ -96,10 +100,14 @@ x2 = np.linspace(-.1, .2, D)
 X1, X2 = np.meshgrid(x1, x2)
 Z = np.array([[f1(np.array([x1, x2])) for x1, x2 in zip(row1, row2)] for row1, row2 in zip(X1, X2)])
 
+np.shape(np.array([location_step])[0])
+
 plt.figure()
-contour = plt.contourf(X1, X2, Z, cmap='coolwarm', levels = 10)
+contour = plt.contour(X1, X2, Z, cmap='coolwarm', levels = 200)
 plt.colorbar(contour)
 plt.plot(x0[0],x0[1],'.', color = 'green',ms = 10, label = 'START')
+plt.plot(np.array([location_step])[0][:,0],np.array([location_step])[0][:,1],'--', color = 'yellow',ms = 10, label = 'Temp')
+plt.plot(np.array([location_step])[0][:,0],np.array([location_step])[0][:,1],'.', color = 'yellow',ms = 10, label = 'Temp')
 plt.plot(result.x[0], result.x[1],'.', color = 'black',ms = 10,label = 'END')
 plt.legend()
 plt.xlabel('X1')
