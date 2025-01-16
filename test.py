@@ -1,4 +1,4 @@
-from ESSOS import Coils, Particles, loss, CreateEquallySpacedCurves
+from ESSOS import Coils, Particles, loss, CreateEquallySpacedCurves, Curves
 
 import os
 import jax
@@ -12,6 +12,61 @@ from functools import partial
 import matplotlib.pyplot as plt
 from bayes_opt import BayesianOptimization
 from scipy.optimize import least_squares, minimize
+import numpy as np
+
+@partial(jit, static_argnums=(2, 3, 4, 5, 7, 8, 9, 10))
+def particleloss(dofs:           jnp.ndarray,
+         dofs_currents:  jnp.ndarray,
+         old_coils:      Coils,
+         particles:      Particles,
+         R:              float,
+         r_init:         float,
+         initial_values: jnp.ndarray,
+         maxtime:        float,
+         timesteps:      int,
+         n_segments:     int,
+         model:          str = 'Guiding Center') -> float:
+             
+    """ Loss function to be minimized
+        Attributes:
+    dofs: Fourier Coefficients of the independent coils - shape (n_indcoils*3*(2*order+1)) - must be a 1D array
+    dofs_currents: Currents of the independent coils - shape (n_indcoils,)
+    old_coils: Coils from which the dofs and dofs_currents are taken
+    n_segments: Number of segments to divide each coil
+    particles: Particles to optimize the trajectories
+    maxtime: Maximum time of the simulation
+    timesteps: Number of timesteps
+    initial_values: Initial values of the particles - shape (5, n_particles)
+    R: float: Major radius of the loss torus
+        Returns:
+    loss_value: Loss value - must be scalar
+    """
+
+    n_indcoils = jnp.size(old_coils.dofs, 0)
+    nfp = old_coils.nfp
+    stellsym = old_coils.stellsym
+
+    dofs = jnp.reshape(dofs, (n_curves, 3, 2*order+1))
+    curves = Curves(dofs, nfp=4, stellsym=True)
+
+    coils = Coils(curves, jnp.array([coil_current]*n_curves))
+
+    if model=='Guiding Center':
+        trajectories = coils.trace_trajectories(particles, initial_values, maxtime, timesteps, n_segments)
+    elif model=='Lorentz':
+        trajectories = coils.trace_trajectories_lorentz(particles, initial_values, maxtime, timesteps, n_segments)
+    else:
+        raise ValueError("Model must be 'Guiding Center' or 'Lorentz'")
+    
+    distances_squared = jnp.square(
+        jnp.sqrt(
+            trajectories[:, :, 0]**2 + trajectories[:, :, 1]**2
+        )-R
+    )+trajectories[:, :, 2]**2
+
+    particle_losses = jnp.mean(distances_squared, axis=1) / r_init**2
+    
+    return jnp.mean(particle_losses), particle_losses
 
 @jit
 def loss_partial_dofs_min(x):
@@ -24,57 +79,61 @@ def loss_partial_dofs_min(x):
     return loss_partial(dofs, currents)
 
 def high_fidelity_loss(dofs, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
-    return loss(dofs, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+    return particleloss(dofs, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
 
 def low_fidelity_loss(dofs, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
     return loss(dofs, dofs_currents, coils, reduced_particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
 
-
 iteration = 0
 bias = 0
 first_iter = True
+high_fidelity_counter = 0
+
+from collections import deque
+
+# Maintain a history of high- and low-fidelity losses
+high_fidelity_history = deque(maxlen=3)
+low_fidelity_history = deque(maxlen=3)
 
 def multifidelity_loss(x):
-    global bias, first_iter
+    global bias, first_iter, high_fidelity_history, low_fidelity_history
     dofs, currents = jax.lax.cond(
         change_currents,
         lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
         lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
         operand=None
     )
-    if first_iter:
-        high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        bias = high_fidelity_value - low_fidelity_value
+
+    if iteration % 5 == 0 or first_iter:
+        high_fidelity_value, _ = high_fidelity_loss(dofs, currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        low_fidelity_value = low_fidelity_loss(dofs, currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        
+        # Update history
+        high_fidelity_history.append(high_fidelity_value)
+        low_fidelity_history.append(low_fidelity_value)
+        
+        # Dynamically calculate bias
+        if len(high_fidelity_history) > 1:
+            bias = np.mean(high_fidelity_history) - np.mean(low_fidelity_history)
+        else:
+            bias = high_fidelity_value - low_fidelity_value
+        
         print(f"HighFidelity Step: HF Loss {high_fidelity_value} --- LF Loss {low_fidelity_value} --- Bias {bias}")
         first_iter = False
     else:
-        low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        #print(f"LF Loss {low_fidelity_value} --- Bias {bias} --- Loss: {low_fidelity_value + bias}")
-    
+        low_fidelity_value = low_fidelity_loss(dofs, currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+
     return low_fidelity_value + bias
 
 def callback(x, res=None):
-    global flag_value,iteration, bias, objective_value
+    global flag_value, iteration, bias, objective_value
 
     objective_value += [multifidelity_loss(x)]
     print("callback")
 
     print(f"Iteration {iteration}:")
     print("Objective Function: {}".format(multifidelity_loss(x)))
-
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-
-    high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    bias = high_fidelity_value - low_fidelity_value
-    print(f"HighFidelity Step: HF Loss {high_fidelity_value} --- LF Loss {low_fidelity_value} --- Bias {bias}")
-
+    
     iteration += 1
 
 #### INPUT PARAMETERS START HERE - NUMBER OF PARTICLES ####
@@ -89,7 +148,7 @@ from MagneticField import B, B_norm
 #### Input parameters continue here
 n_curves=2
 nfp=4
-order=2
+order=3
 r = 3
 A = 2 # Aspect ratio
 R = A*r
@@ -97,9 +156,8 @@ r_init = r/4
 maxtime = 3.0e-6
 timesteps_guiding_center=max(1000,int(maxtime/1.0e-8))
 timesteps_lorentz=1000
-#timesteps_lorentz=int(maxtime/1.0e-10)
 nparticles = number_of_cores*number_of_particles_per_core
-n_segments=80
+n_segments=100
 coil_current = 7e6
 change_currents = False
 model = 'Lorentz' # 'Guiding Center' or 'Lorentz'
@@ -116,10 +174,11 @@ particles = Particles(nparticles)
 
 reduced_particles = Particles(max(1, nparticles // 3))
 
+print(particles)
+
 curves = CreateEquallySpacedCurves(n_curves, order, R, r, nfp=nfp, stellsym=True)
 stel = Coils(curves, jnp.array([coil_current]*n_curves))
 timesteps = timesteps_lorentz if model=='Lorentz' else timesteps_guiding_center
-
 
 x0, y0, z0, vpar0, vperp0 = stel.initial_conditions(particles, R, r_init, model='Guiding Center')
 v0 = jnp.zeros((3, nparticles))
@@ -142,8 +201,6 @@ initial_values = jnp.array([x0, y0, z0, v0[0], v0[1], v0[2]]) if model=='Lorentz
 
 iteration = 0
 loss_vals = []
-
-
 
 # Loss partial function
 loss_partial = partial(loss, old_coils=stel, particles=particles, R=R, r_init=r_init, initial_values=initial_values, maxtime=maxtime, timesteps=timesteps, n_segments=n_segments, model=model)

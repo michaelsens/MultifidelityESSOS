@@ -13,6 +13,11 @@ import matplotlib.pyplot as plt
 from bayes_opt import BayesianOptimization
 from scipy.optimize import least_squares, minimize
 
+iteration = 0
+bias = 0
+first_iter = True
+objective_value = []
+
 @jit
 def loss_partial_dofs_min(x):
     dofs, currents = jax.lax.cond(
@@ -23,58 +28,38 @@ def loss_partial_dofs_min(x):
     )
     return loss_partial(dofs, currents)
 
-def high_fidelity_loss(dofs, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
-    return loss(dofs, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+def high_fidelity_loss(dofs, currents):
+    return loss(dofs, currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
 
-def low_fidelity_loss(dofs, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
-    return loss(dofs, dofs_currents, coils, reduced_particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-
-
-iteration = 0
-bias = 0
-first_iter = True
+def low_fidelity_loss(dofs, currents):
+    return loss(dofs, currents, stel, reduced_particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
 
 def multifidelity_loss(x):
     global bias, first_iter
+    
     dofs, currents = jax.lax.cond(
         change_currents,
         lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
         lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
         operand=None
     )
-    if first_iter:
-        high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        bias = high_fidelity_value - low_fidelity_value
-        print(f"HighFidelity Step: HF Loss {high_fidelity_value} --- LF Loss {low_fidelity_value} --- Bias {bias}")
-        first_iter = False
-    else:
-        low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        #print(f"LF Loss {low_fidelity_value} --- Bias {bias} --- Loss: {low_fidelity_value + bias}")
     
-    return low_fidelity_value + bias
+    if first_iter:
+        hf_loss = high_fidelity_loss(dofs, currents)
+        lf_loss = low_fidelity_loss(dofs, currents)
+        bias = hf_loss - lf_loss
+        first_iter = False
+    
+    mf_loss = low_fidelity_loss(dofs, currents) + bias
+    return mf_loss
 
 def callback(x, res=None):
-    global flag_value,iteration, bias, objective_value
-
-    objective_value += [multifidelity_loss(x)]
-    print("callback")
-
-    print(f"Iteration {iteration}:")
-    print("Objective Function: {}".format(multifidelity_loss(x)))
-
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-
-    high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    bias = high_fidelity_value - low_fidelity_value
-    print(f"HighFidelity Step: HF Loss {high_fidelity_value} --- LF Loss {low_fidelity_value} --- Bias {bias}")
-
+    global iteration, objective_value
+    
+    mf_loss = multifidelity_loss(x)
+    objective_value.append(mf_loss)
+    
+    print(f"Iteration {iteration}: Objective Value = {mf_loss}")
     iteration += 1
 
 #### INPUT PARAMETERS START HERE - NUMBER OF PARTICLES ####

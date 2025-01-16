@@ -8,6 +8,7 @@ dependencies:
   - optax
   - chex
   - scipy
+  - cma
   - tqdm
   - matplotlib
   - pip

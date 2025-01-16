@@ -114,7 +114,7 @@ def multifidelity_loss(x):
     
     return low_fidelity_value + bias
 
-def callback(x):
+def callback(x, res=None):
     global flag_value,iteration, bias, objective_value
 
     objective_value += [multifidelity_loss(x)]
@@ -238,7 +238,7 @@ while iteration < 15:
     else:
         all_dofs = jnp.ravel(stel.dofs)
 
-    res = minimize(multifidelity_loss, x0=all_dofs, method='L-BFGS-B', options={ 'maxiter': 15,'disp': False, 'maxcor': 300, 'ftol': 1e-18, 'gtol': 1e-12, 'eps': 1e-8}, callback = callback, tol=1e-8)
+    res = minimize(multifidelity_loss, x0=all_dofs, method='trust-constr', options={ 'maxiter': 15,'disp': False,'gtol': 1e-12}, callback = callback, tol=1e-8)
 
 x = jnp.array(res.x)
 end_optimization_time = time()
