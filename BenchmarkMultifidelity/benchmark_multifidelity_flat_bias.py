@@ -76,7 +76,7 @@ def callback(x):
 
     iteration += 1
 
-x0 = np.array([.01,.08])
+x0 = np.array([0.01, 0.095])
 
 bounds = [(-.1, .2), (-.1, .2)]
 

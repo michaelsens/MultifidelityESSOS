@@ -91,7 +91,6 @@ high_fidelity_counter = 0
 
 from collections import deque
 
-# Maintain a history of high- and low-fidelity losses
 high_fidelity_history = deque(maxlen=3)
 low_fidelity_history = deque(maxlen=3)
 
@@ -202,7 +201,6 @@ initial_values = jnp.array([x0, y0, z0, v0[0], v0[1], v0[2]]) if model=='Lorentz
 iteration = 0
 loss_vals = []
 
-# Loss partial function
 loss_partial = partial(loss, old_coils=stel, particles=particles, R=R, r_init=r_init, initial_values=initial_values, maxtime=maxtime, timesteps=timesteps, n_segments=n_segments, model=model)
 
 len_dofs = len(jnp.ravel(stel.dofs))
@@ -211,7 +209,6 @@ if change_currents:
 else:
     all_dofs = jnp.ravel(stel.dofs)
 
-# Optimization
 print(f"Number of dofs: {len(all_dofs)}")
 start_optimization_time = time()
 
