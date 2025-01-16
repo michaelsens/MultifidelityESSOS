@@ -50,12 +50,12 @@ def callback(x):
 def custom_jacobian(x):
     global sampled_points
     r = 0.05
-    gradient = np.zeros_like(x)  # Initialize gradient array
+    gradient = np.zeros_like(x)
     for i in range(len(x)):
         perturbation = np.zeros_like(x)
-        perturbation[i] = r  # Positive perturbation in the i-th dimension
+        perturbation[i] = r
         positive_point = x + perturbation
-        perturbation[i] = -r  # Negative perturbation in the i-th dimension
+        perturbation[i] = -r
         negative_point = x + perturbation
         grad_i = (low_fidelity_loss(positive_point) - low_fidelity_loss(negative_point)) / (2 * r)
         gradient[i] = grad_i
