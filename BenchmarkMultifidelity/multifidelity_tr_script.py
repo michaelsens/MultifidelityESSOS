@@ -31,6 +31,10 @@ def f_lo_adjusted(x, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
 def step_loss(s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
     return f_lo_adjusted(z + s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z)
 
+def grad_step(s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
+    grad_step_loss = grad(step_loss)
+    return grad_step_loss(s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z)
+
 def grad_high(x):
     grad_hf_loss = grad(high_fidelity_loss)
     return grad_hf_loss(x)
@@ -65,7 +69,8 @@ def trust_region_optimization(z0, delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.
             np.zeros_like(z),
             args=(z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z),
             bounds=bounds,
-            method="L-BFGS-B"
+            method="L-BFGS-B",
+            jac=grad_step
         )
         s = res.x
         print(f"  Step s = {s}")
