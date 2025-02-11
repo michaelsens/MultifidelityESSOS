@@ -125,11 +125,12 @@ else:
 
 
 def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model, grad_f_hi,
-                              delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.1, gamma2=0.75, max_iter=30, tol=1e-6, loss_req=0.125):
+                              delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.8, gamma2=1.2, max_iter=3, tol=1e-6, loss_req=0.125):
     z = z0
     iteration = 0
     delta = delta_max * 0.1
     history = [z0.copy()]
+    obj_vals = []
     
     print("\nStarting Trust-Region Optimization...")
     
@@ -139,6 +140,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         t0 = time.time()
         high_fidelity_loss_z = high_fidelity_loss(z, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
         print(f"  High-fidelity loss | Time: {time.time() - t0:.6f}s | Loss: {high_fidelity_loss_z:.6f}")
+        obj_vals += [high_fidelity_loss_z]
 
         t1 = time.time()
         low_fidelity_loss_z = low_fidelity_loss(z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
@@ -189,9 +191,9 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             print("  Loss requirement met. Terminating optimization.")
             break
 
-        if gamma < gamma1:
+        if gamma > gamma2 or gamma < gamma1:
             delta = max(eta1 * delta, tol)
-        elif gamma > gamma2:
+        else:
             delta = min(eta2 * delta, delta_max)
 
         if actual_reduction > 0:
@@ -200,7 +202,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
 
         iteration += 1
 
-    return z, history
+    return z, obj_vals, history
 
 grad_f_hi = create_grad_f_hi(
     dofs_currents=stel.dofs_currents,
@@ -216,7 +218,7 @@ grad_f_hi = create_grad_f_hi(
 )
 
 z0 = jnp.ravel(stel.dofs)
-z_opt, history = trust_region_optimization(
+z_opt, obj_vals, history = trust_region_optimization(
     z0=z0,
     dofs_currents=stel.dofs_currents,
     coils=stel,
@@ -231,7 +233,7 @@ z_opt, history = trust_region_optimization(
     grad_f_hi=grad_f_hi
 )
 
-plt.plot(history, label="High-Fidelity Loss")
+plt.plot(obj_vals, label="High-Fidelity Loss")
 plt.xlabel("Iteration")
 plt.ylabel("Loss")
 plt.title("Trust-Region Optimization Convergence")
