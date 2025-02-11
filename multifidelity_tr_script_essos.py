@@ -216,7 +216,7 @@ grad_f_hi = create_grad_f_hi(
 )
 
 z0 = jnp.ravel(stel.dofs)
-z_opt, obj_vals, grad_norms, history = trust_region_optimization(
+z_opt, history = trust_region_optimization(
     z0=z0,
     dofs_currents=stel.dofs_currents,
     coils=stel,
@@ -231,7 +231,7 @@ z_opt, obj_vals, grad_norms, history = trust_region_optimization(
     grad_f_hi=grad_f_hi
 )
 
-plt.plot(obj_vals, label="High-Fidelity Loss")
+plt.plot(history, label="High-Fidelity Loss")
 plt.xlabel("Iteration")
 plt.ylabel("Loss")
 plt.title("Trust-Region Optimization Convergence")
