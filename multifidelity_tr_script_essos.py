@@ -125,10 +125,10 @@ else:
 
 
 def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model, grad_f_hi,
-                              delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.8, gamma2=1.2, max_iter=3, tol=1e-6, loss_req=0.125):
+                              delta_max=0.2, eta1=0.8, eta2=1.2, gamma1=0.3, gamma2=1.7, max_iter=10, tol=1e-6, loss_req=0.125):
     z = z0
     iteration = 0
-    delta = delta_max * 0.1
+    delta = delta_max * 0.2
     history = [z0.copy()]
     obj_vals = []
     
@@ -170,7 +170,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             jac=grad_step_partial,
             bounds=[(-delta, delta) for _ in z],
             method="L-BFGS-B",
-            options={"maxiter": 3, "disp": False, "ftol": 1e-4, "gtol": 1e-4}
+            options={"maxiter": 5, "disp": False, "ftol": 1e-4, "gtol": 1e-4}
         )
         print(f"  L-BFGS-B completed | Time: {time.time() - t3:.6f}s")
 
@@ -180,9 +180,12 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         print(f"  High-fidelity loss (new point) | Time: {time.time() - t4:.6f}s | Loss: {f_hi_z_after_s:.6f}")
 
         actual_reduction = high_fidelity_loss_z - f_hi_z_after_s
-        predicted_reduction = high_fidelity_loss_z - f_lo_adjusted(z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+        f_lo_adjusted_after_s = f_lo_adjusted(z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
                                                                    dofs_currents, coils, R, r_init, initial_values, maxtime,
                                                                    timesteps, n_segments, model)
+        predicted_reduction = high_fidelity_loss_z - f_lo_adjusted_after_s
+        print(f"  High Fidelity Loss after step: {f_hi_z_after_s:.6f} | Low Fidelity Adjusted at z + s: {f_lo_adjusted_after_s:.6f}")
+
         gamma = actual_reduction / predicted_reduction if predicted_reduction > 0 else 0
 
         print(f"  Actual Reduction: {actual_reduction:.6f} | Predicted Reduction: {predicted_reduction:.6f} | Gamma: {gamma:.4f}")
