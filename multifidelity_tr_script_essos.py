@@ -124,8 +124,10 @@ else:
 
 
 
-def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model, grad_f_hi,
-                              delta_max=0.2, eta1=0.8, eta2=1.2, gamma1=0.3, gamma2=1.7, max_iter=10, tol=1e-6, loss_req=0.125):
+def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, 
+                              maxtime, timesteps, n_segments, model, grad_f_hi,
+                              delta_max=0.2, gamma1=0.35, gamma2=1.65, 
+                              trust_region_sensitivity=1.0, max_iter=10, tol=1e-6, loss_req=0.125):
     z = z0
     iteration = 0
     delta = delta_max * 0.2
@@ -140,7 +142,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         t0 = time.time()
         high_fidelity_loss_z = high_fidelity_loss(z, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
         print(f"  High-fidelity loss | Time: {time.time() - t0:.6f}s | Loss: {high_fidelity_loss_z:.6f}")
-        obj_vals += [high_fidelity_loss_z]
+        obj_vals.append(high_fidelity_loss_z)
 
         t1 = time.time()
         low_fidelity_loss_z = low_fidelity_loss(z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
@@ -180,24 +182,26 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         print(f"  High-fidelity loss (new point) | Time: {time.time() - t4:.6f}s | Loss: {f_hi_z_after_s:.6f}")
 
         actual_reduction = high_fidelity_loss_z - f_hi_z_after_s
-        f_lo_adjusted_after_s = f_lo_adjusted(z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
-                                                                   dofs_currents, coils, R, r_init, initial_values, maxtime,
-                                                                   timesteps, n_segments, model)
-        predicted_reduction = high_fidelity_loss_z - f_lo_adjusted_after_s
-        print(f"  High Fidelity Loss after step: {f_hi_z_after_s:.6f} | Low Fidelity Adjusted at z + s: {f_lo_adjusted_after_s:.6f}")
-
+        predicted_reduction = high_fidelity_loss_z - f_lo_adjusted(
+            z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+            dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model
+        )
         gamma = actual_reduction / predicted_reduction if predicted_reduction > 0 else 0
 
         print(f"  Actual Reduction: {actual_reduction:.6f} | Predicted Reduction: {predicted_reduction:.6f} | Gamma: {gamma:.4f}")
 
+        if gamma1 <= gamma <= gamma2:
+            delta *= 1 + trust_region_sensitivity * (1 - abs(gamma - 1)) 
+            delta = min(delta, delta_max)
+        else:
+            delta *= 1 - trust_region_sensitivity * min(abs(gamma - gamma1), abs(gamma - gamma2))
+            delta = max(delta, tol)
+
+        print(f"  Updated Delta: {delta:.6f}")
+
         if high_fidelity_loss_z < loss_req:
             print("  Loss requirement met. Terminating optimization.")
             break
-
-        if gamma > gamma2 or gamma < gamma1:
-            delta = max(eta1 * delta, tol)
-        else:
-            delta = min(eta2 * delta, delta_max)
 
         if actual_reduction > 0:
             z = z + s
@@ -206,6 +210,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         iteration += 1
 
     return z, obj_vals, history
+
 
 grad_f_hi = create_grad_f_hi(
     dofs_currents=stel.dofs_currents,
