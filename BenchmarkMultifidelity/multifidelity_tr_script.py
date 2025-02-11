@@ -4,6 +4,28 @@ import jax
 import jax.numpy as np
 from jax import grad
 
+def plot_square(delta,x, N = 20):
+    
+    for i in range(len(delta)):
+        dc = delta[i]
+        zc = x[i]
+    
+        xs1 = np.linspace(zc[0] - dc, dc + zc[0],N)
+        ys1 = np.ones_like(xs1)*(zc[1] - dc)
+        
+        xs2 = np.linspace(zc[0] - dc, dc + zc[0],N)
+        ys2 = np.ones_like(xs1)*(zc[1] + dc)
+          
+        ys3 = np.linspace(zc[1] - dc, dc + zc[1],N)
+        xs3 = np.ones_like(xs1)*(zc[0] + dc)
+          
+        ys4 = np.linspace(zc[1] - dc, dc + zc[1],N)
+        xs4 = np.ones_like(ys1)*(zc[0] - dc)
+          
+        plt.scatter(xs1,ys1, s = 2, color = 'black')
+        plt.scatter(xs2,ys2, s = 2,color = 'black')
+        plt.scatter(xs3,ys3, s = 2,color = 'black')
+        plt.scatter(xs4,ys4, s = 2,color = 'black')
 
 def Rotation(theta):
     return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
@@ -29,6 +51,7 @@ def f_lo_adjusted(x, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
     return low_fidelity_loss(x) + (high_fidelity_loss_z - low_fidelity_loss_z) + grad_high_z @ (x - z)
 
 def step_loss(s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
+    
     return f_lo_adjusted(z + s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z)
 
 def grad_step(s, z, grad_high_z, low_fidelity_loss_z, high_fidelity_loss_z):
@@ -46,13 +69,16 @@ def grad_high(x):
 #gamma1,2: thresholds for ratio of actual vs predicted reduction
 #tol: termination value for minimum actual reduction
 #loss_req: termination value for actual loss
-def trust_region_optimization(z0, delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.1, gamma2=0.75, max_iter=30, tol=1e-6, loss_req = 0.125):
+def trust_region_optimization(z0, delta_max=0.2, delta_start = .03,eta1=0.25, eta2=0.75, gamma1=0.1, gamma2=0.75, max_iter=30, tol=1e-4, loss_req = 0.125):
     z = z0
     iteration = 0
-    delta = delta_max * 0.1
+    delta = delta_start
     history = [z0.copy()]
     obj_high_values = [high_fidelity_loss(z)]
+    obj_low_values = [low_fidelity_loss(z)]
+   
     gradient_norms = [np.linalg.norm(grad_high(z))]
+    delta_list = [delta]
 
 
     while iteration < max_iter:
@@ -91,14 +117,18 @@ def trust_region_optimization(z0, delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.
         elif gamma > gamma2:
             delta = min(eta2 * delta, delta_max)
 
-        if actual_reduction > 0:
-            z = z + s
-            history.append(z.copy())
-            obj_high_values.append(high_fidelity_loss(z))
-            gradient_norms.append(np.linalg.norm(grad_high(z)))
+        #if actual_reduction > 0:
+        z = z + s
+        history.append(z.copy())
+        obj_high_values.append(high_fidelity_loss(z))
+        obj_low_values.append(low_fidelity_loss(z))
+        gradient_norms.append(np.linalg.norm(grad_high(z)))
 
         print(f"  Updated Delta = {delta:.10f}")
         print(f"  Gradient norm = {gradient_norms[-1]:.6f}")
+
+        delta_list += [delta]
+
 
         if gradient_norms[-1] < tol:
             print("  Convergence achieved.")
@@ -106,32 +136,59 @@ def trust_region_optimization(z0, delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.
 
         iteration += 1
 
-    return z, obj_high_values, gradient_norms, history
+    return z, obj_high_values, obj_low_values,gradient_norms, history, delta_list
 
 z0 = np.array([-0.05, 0.02])
-z_opt, obj_high_values, gradient_norms, history = trust_region_optimization(
-    z0, delta_max=0.2, eta1=0.25, eta2=0.75, gamma1=0.1, gamma2=0.75, max_iter=15, tol=1e-6
+z_opt, obj_high_values,obj_low_values, gradient_norms, history,delta_list = trust_region_optimization(
+    z0, delta_max=0.2,delta_start = .03, eta1=0.9, eta2=1.1, gamma1=0.1, gamma2=0.75, max_iter=15, tol=1e-4
 )
 
+
+
+#### Plotting #####
+# grid settings
 D = 100
 x1 = np.linspace(-0.2, 0.2, D)
 x2 = np.linspace(-0.2, 0.2, D)
 X1, X2 = np.meshgrid(x1, x2)
+###
+
+
+
+
+# plot high fidelity contour
 vectorized_loss = jax.vmap(lambda xy: high_fidelity_loss(xy), in_axes=0)
-
 grid_points = np.stack([X1.ravel(), X2.ravel()], axis=-1)
-
 Z = vectorized_loss(grid_points).reshape(X1.shape)
-
-plt.ion()
-
 plt.figure(figsize=(12, 10))
-contour = plt.contour(X1, X2, Z, levels=150, cmap='coolwarm')
+contour = plt.contour(X1, X2, Z, levels=20, cmap='coolwarm')
 plt.colorbar(contour, label="High-fidelity Loss Value")
 history_array = np.array(history)
-plt.plot(history_array[:, 0], history_array[:, 1], 'o--', color='yellow', label="Optimization Path")
-plt.scatter(history_array[0, 0], history_array[0, 1], color='green', label="Start Point", s=100)
-plt.scatter(history_array[-1, 0], history_array[-1, 1], color='black', label="End Point", s=100)
+plt.plot(history_array[:, 0], history_array[:, 1], '--',linewidth = 1, color='yellow', label="Optimization Path")
+plt.scatter(history_array[0, 0], history_array[0, 1], color='green', label="Start Point", s=150)
+plt.scatter(history_array[-1, 0], history_array[-1, 1], color='black', label="End Point", s=150)
+plt.scatter(history_array[1:-1, 0], history_array[1:-1, 1], color='orange',s=150)
+plot_square(delta_list,history, N = 100)
+plt.xlabel("X1")
+plt.ylabel("X2")
+plt.title("Trust Region Optimization on Loss Surface")
+plt.legend()
+plt.grid()
+#plt.show()
+
+# plot low fidelity contour
+vectorized_loss = jax.vmap(lambda xy: low_fidelity_loss(xy), in_axes=0)
+grid_points = np.stack([X1.ravel(), X2.ravel()], axis=-1)
+Z = vectorized_loss(grid_points).reshape(X1.shape)
+plt.figure(figsize=(12, 10))
+contour = plt.contour(X1, X2, Z, levels=20, cmap='coolwarm')
+plt.colorbar(contour, label="Low-fidelity Loss Value")
+history_array = np.array(history)
+plt.plot(history_array[:, 0], history_array[:, 1], '--',linewidth = 1, color='yellow', label="Optimization Path")
+plt.scatter(history_array[0, 0], history_array[0, 1], color='green', label="Start Point", s=150)
+plt.scatter(history_array[-1, 0], history_array[-1, 1], color='black', label="End Point", s=150)
+plt.scatter(history_array[1:-1, 0], history_array[1:-1, 1], color='orange',s=150)
+plot_square(delta_list,history, N = 100)
 plt.xlabel("X1")
 plt.ylabel("X2")
 plt.title("Trust Region Optimization on Loss Surface")
@@ -141,6 +198,7 @@ plt.grid()
 # Plot optimization progress
 plt.figure(figsize=(12, 6))
 plt.plot(obj_high_values, label="High-fidelity Loss")
+plt.plot(obj_low_values, label="Low-fidelity Loss")
 plt.plot(gradient_norms, label="Gradient Norm")
 plt.xlabel("Iteration")
 plt.ylabel("Value")
@@ -152,6 +210,5 @@ plt.show()
 print("\nFinal Results:")
 print(f"Optimal point: z = {z_opt}")
 print(f"Optimal high-fidelity value: f_high(z) = {high_fidelity_loss(z_opt)}")
-
 
 plt.pause(0)
