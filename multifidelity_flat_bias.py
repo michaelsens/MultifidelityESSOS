@@ -52,12 +52,11 @@ def multifidelity_loss(x):
         low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
         #print(f"LF Loss {low_fidelity_value} --- Bias {bias} --- Loss: {low_fidelity_value + bias}")
     
-    return low_fidelity_value + bias
+    return low_fidelity_value
 
 def callback(x, res=None):
     global flag_value,iteration, bias, objective_value
 
-    objective_value += [multifidelity_loss(x)]
     print("callback")
 
     print(f"Iteration {iteration}:")
@@ -69,6 +68,8 @@ def callback(x, res=None):
         lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
         operand=None
     )
+    objective_value += [high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)]
+
 
     high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
     low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
@@ -114,7 +115,7 @@ max_val =  15 # maximum coil dof value
 ##### Input parameters stop here
 particles = Particles(nparticles)
 
-reduced_particles = Particles(max(1, nparticles // 3))
+reduced_particles = Particles(12)
 
 curves = CreateEquallySpacedCurves(n_curves, order, R, r, nfp=nfp, stellsym=True)
 stel = Coils(curves, jnp.array([coil_current]*n_curves))
@@ -166,14 +167,14 @@ flag_value = []
 
 #res = minimize(multifidelity_loss, x0=all_dofs, method='L-BFGS-B', options={ 'maxiter': 1000,'disp': False, 'maxcor': 300, 'ftol': 1e-18, 'gtol': 1e-12, 'eps': 1e-8}, callback = callback, tol=1e-8)
 
-while iteration < 15:
+while iteration < 17:
     
     if change_currents:
         all_dofs = jnp.concatenate((jnp.ravel(stel.dofs), jnp.ravel(stel.currents)[:n_curves]))
     else:
         all_dofs = jnp.ravel(stel.dofs)
 
-    res = minimize(multifidelity_loss, x0=all_dofs, method='trust-constr', options={ 'maxiter': 15,'disp': False, 'gtol': 1e-12}, callback = callback, tol=1e-8)
+    res = minimize(multifidelity_loss, x0=all_dofs, method='trust-constr', options={ 'maxiter': 30,'disp': False, 'gtol': 1e-12}, callback = callback, tol=1e-8)
 
 x = jnp.array(res.x)
 end_optimization_time = time()

@@ -126,13 +126,15 @@ else:
 
 def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, 
                               maxtime, timesteps, n_segments, model, grad_f_hi,
-                              delta_max=0.2, gamma1=0.35, gamma2=1.65, 
-                              trust_region_sensitivity=1.0, max_iter=10, tol=1e-6, loss_req=0.125):
+                              delta_max=0.2, gamma1=0.15, gamma2=6.5, 
+                              trust_region_sensitivity=1.0, max_iter=15, tol=1e-6, loss_req=0.125):
     z = z0
     iteration = 0
     delta = delta_max * 0.2
     history = [z0.copy()]
     obj_vals = []
+    total_iterations = 0
+    delta_vals = [delta] 
     
     print("\nStarting Trust-Region Optimization...")
     
@@ -164,6 +166,10 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
                                     initial_values=initial_values, maxtime=maxtime, timesteps=timesteps,
                                     n_segments=n_segments, model=model)
 
+        def callback(x):
+            nonlocal total_iterations
+            total_iterations += 1
+
         print("  Running L-BFGS-B...")
         t3 = time.time()
         res = minimize(
@@ -172,9 +178,11 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             jac=grad_step_partial,
             bounds=[(-delta, delta) for _ in z],
             method="L-BFGS-B",
-            options={"maxiter": 5, "disp": False, "ftol": 1e-4, "gtol": 1e-4}
+            options={"maxiter": 50, "disp": False, "ftol": 1e-4, "gtol": 1e-4},
+            callback=callback
         )
         print(f"  L-BFGS-B completed | Time: {time.time() - t3:.6f}s")
+        print(f"  Total iterations so far: {total_iterations}")
 
         s = res.x
         t4 = time.time()
@@ -197,6 +205,8 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             delta *= 1 - trust_region_sensitivity * min(abs(gamma - gamma1), abs(gamma - gamma2))
             delta = max(delta, tol)
 
+        delta_vals.append(delta) 
+
         print(f"  Updated Delta: {delta:.6f}")
 
         if high_fidelity_loss_z < loss_req:
@@ -209,7 +219,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
 
         iteration += 1
 
-    return z, obj_vals, history
+    return z, obj_vals, history, delta_vals
 
 
 grad_f_hi = create_grad_f_hi(
@@ -226,7 +236,7 @@ grad_f_hi = create_grad_f_hi(
 )
 
 z0 = jnp.ravel(stel.dofs)
-z_opt, obj_vals, history = trust_region_optimization(
+z_opt, obj_vals, history, delta_vals = trust_region_optimization(
     z0=z0,
     dofs_currents=stel.dofs_currents,
     coils=stel,
@@ -247,4 +257,12 @@ plt.ylabel("Loss")
 plt.title("Trust-Region Optimization Convergence")
 plt.legend()
 plt.grid()
+
+plt.plot(delta_vals, label="Trust Region Size (Delta)", color="red")
+plt.xlabel("Iteration")
+plt.ylabel("Delta")
+plt.title("Trust Region Size Over Iterations")
+plt.legend()
+plt.grid()
+
 plt.show()
