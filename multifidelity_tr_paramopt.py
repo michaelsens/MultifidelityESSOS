@@ -1,9 +1,8 @@
 from ESSOS import Coils, Particles, loss, CreateEquallySpacedCurves
-
 import os
 import jax
 import sys
-import pybobyqa # type: ignore
+import pybobyqa  # type: ignore
 from jax import jit, grad
 from time import time
 import jax.numpy as jnp
@@ -12,10 +11,8 @@ from functools import partial
 import matplotlib.pyplot as plt
 from bayes_opt import BayesianOptimization
 from scipy.optimize import minimize
-from functools import partial
 import time
 import jax.numpy as np
-import math
 
 @jit
 def loss_partial_dofs_min(x):
@@ -45,21 +42,26 @@ def hf_loss_func(z, dofs_currents, coils, particles, R, r_init, initial_values, 
 def lf_loss_func(z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
     return low_fidelity_loss(z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
 
-def f_lo_adjusted(x, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
+def f_lo_adjusted(x, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+                  dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
     return (low_fidelity_loss(x, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-        + (high_fidelity_loss_z - low_fidelity_loss_z)
-        + grad_high_z @ (x - z))
+            + (high_fidelity_loss_z - low_fidelity_loss_z)
+            + grad_high_z @ (x - z))
 
-def step_loss(s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
+def step_loss(s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+              dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
     t_start = time.time()
-    loss_value = f_lo_adjusted(z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+    loss_value = f_lo_adjusted(z + s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+                                dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
     print(f"    Function evaluation | Time: {time.time() - t_start:.6f}s")
     return loss_value
 
-def grad_step(s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
+def grad_step(s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+              dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model):
     t_start = time.time()
     def step_loss_wrapped(s_):
-        return step_loss(s_, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        return step_loss(s_, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z,
+                         dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
     grad_value = grad(step_loss_wrapped)(s)
     print(f"    Gradient evaluation | Time: {time.time() - t_start:.6f}s")
     return grad_value
@@ -103,7 +105,9 @@ for i in range(nparticles):
     perp_vector_2 = jnp.cross(b0, perp_vector_1_normalized)
     v0 = v0.at[:, i].set(vpar0[i] * b0 + vperp0[i] * (perp_vector_1_normalized / jnp.sqrt(2) + perp_vector_2 / jnp.sqrt(2)))
 
-initial_values = jnp.array([x0, y0, z0, v0[0], v0[1], v0[2]]) if model == 'Lorentz' else jnp.array([x0, y0, z0, vpar0, vperp0])
+initial_values = (jnp.array([x0, y0, z0, v0[0], v0[1], v0[2]])
+                  if model == 'Lorentz'
+                  else jnp.array([x0, y0, z0, vpar0, vperp0]))
 
 loss_partial = partial(
     loss,
@@ -118,23 +122,23 @@ loss_partial = partial(
     model=model
 )
 len_dofs = len(jnp.ravel(stel.dofs))
-
 if change_currents:
     all_dofs = jnp.concatenate((jnp.ravel(stel.dofs), jnp.ravel(stel.currents)[:n_curves]))
 else:
     all_dofs = jnp.ravel(stel.dofs)
 
-def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, 
+def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values,
                               maxtime, timesteps, n_segments, model, grad_f_hi,
-                              delta_max=0.2, gamma1=0.15, gamma2=0.3,
-                              trust_region_sensitivity=1.0, max_iter=40, tol=1e-4, loss_req=0.125):
+                              delta_max=0.2, gamma1=0.15, gamma2=6.5,
+                              trust_region_sensitivity=1.0, max_iter=30, tol=1e-6, loss_req=0.125,
+                              inner_maxiter=50, initial_delta_scale=0.2):
     z = z0
     iteration = 0
-    delta = delta_max * 0.4
+    delta = delta_max * initial_delta_scale
     history = [z0.copy()]
     obj_vals = []
     total_iterations = 0
-    delta_vals = [delta] 
+    delta_vals = [delta]
     
     print("\nStarting Trust-Region Optimization...")
     
@@ -142,12 +146,14 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
         print(f"\nIteration {iteration} | Delta = {delta:.6f}")
 
         t0 = time.time()
-        high_fidelity_loss_z = high_fidelity_loss(z, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        high_fidelity_loss_z = high_fidelity_loss(z, dofs_currents, coils, particles, R, r_init,
+                                                  initial_values, maxtime, timesteps, n_segments, model)
         print(f"  High-fidelity loss | Time: {time.time() - t0:.6f}s | Loss: {high_fidelity_loss_z:.6f}")
         obj_vals.append(high_fidelity_loss_z)
 
         t1 = time.time()
-        low_fidelity_loss_z = low_fidelity_loss(z, dofs_currents, coils, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        low_fidelity_loss_z = low_fidelity_loss(z, dofs_currents, coils, R, r_init,
+                                                 initial_values, maxtime, timesteps, n_segments, model)
         print(f"  Low-fidelity loss  | Time: {time.time() - t1:.6f}s | Loss: {low_fidelity_loss_z:.6f}")
 
         t2 = time.time()
@@ -178,7 +184,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             jac=grad_step_partial,
             bounds=[(-delta, delta) for _ in z],
             method="L-BFGS-B",
-            options={"maxiter": 30, "disp": False, "ftol": 1e-4, "gtol": 1e-4},
+            options={"maxiter": inner_maxiter, "disp": False},
             callback=callback
         )
         print(f"  L-BFGS-B completed | Time: {time.time() - t3:.6f}s")
@@ -186,7 +192,8 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
 
         s = res.x
         t4 = time.time()
-        f_hi_z_after_s = high_fidelity_loss(z + s, dofs_currents, coils, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
+        f_hi_z_after_s = high_fidelity_loss(z + s, dofs_currents, coils, particles, R, r_init,
+                                             initial_values, maxtime, timesteps, n_segments, model)
         print(f"  High-fidelity loss (new point) | Time: {time.time() - t4:.6f}s | Loss: {f_hi_z_after_s:.6f}")
 
         actual_reduction = high_fidelity_loss_z - f_hi_z_after_s
@@ -198,32 +205,27 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
 
         print(f"  Actual Reduction: {actual_reduction:.6f} | Predicted Reduction: {predicted_reduction:.6f} | Gamma: {gamma:.4f}")
 
-        if gamma < 0:
-            delta = min(delta * (1 + trust_region_sensitivity * abs(gamma)), delta_max) #expand to escpace
-        elif gamma < gamma1:
-            multiplier = math.exp(-trust_region_sensitivity * (gamma1 - gamma)) #contract
-            delta = max(delta * multiplier, tol)
-        elif gamma < gamma2:
-            delta = delta
+        if gamma1 <= gamma <= gamma2:
+            delta *= 1 + trust_region_sensitivity * (1 - abs(gamma - 1))
+            delta = min(delta, delta_max)
         else:
-            delta = min(delta * (1 + trust_region_sensitivity * (gamma - gamma2)), delta_max) #expand
+            delta *= 1 - trust_region_sensitivity * min(abs(gamma - gamma1), abs(gamma - gamma2))
+            delta = max(delta, tol)
 
-        delta_vals.append(delta) 
-
+        delta_vals.append(delta)
         print(f"  Updated Delta: {delta:.6f}")
 
         if high_fidelity_loss_z < loss_req:
             print("  Loss requirement met. Terminating optimization.")
             break
 
-        #if actual_reduction > 0:
-        z = z + s
-        history.append(z.copy())
+        if actual_reduction > 0:
+            z = z + s
+            history.append(z.copy())
 
         iteration += 1
 
     return z, obj_vals, history, delta_vals
-
 
 grad_f_hi = create_grad_f_hi(
     dofs_currents=stel.dofs_currents,
@@ -237,153 +239,76 @@ grad_f_hi = create_grad_f_hi(
     n_segments=n_segments,
     model=model
 )
-t_trust = time.time()
+
 z0 = jnp.ravel(stel.dofs)
-z_opt, obj_vals, history, delta_vals = trust_region_optimization(
-    z0=z0,
-    dofs_currents=stel.dofs_currents,
-    coils=stel,
-    particles=particles,
-    R=R,
-    r_init=r_init,
-    initial_values=initial_values,
-    maxtime=maxtime,
-    timesteps=timesteps,
-    n_segments=n_segments,
-    model=model,
-    grad_f_hi=grad_f_hi
-)
-print(f"Multifidelity Trust Time: {time.time() - t_trust:.6f}s")
 
-if change_currents:
-    all_dofs = jnp.concatenate((jnp.ravel(stel.dofs), jnp.ravel(stel.currents)[:n_curves]))
-else:
-    all_dofs = jnp.ravel(stel.dofs)
+meta_loss_history = []
+meta_x_history = []
 
-iteration = 0
-obj_vals_low = []
-
-def low_loss(x):
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
+def meta_objective(x):
+    delta_max = x[0]
+    gamma1 = x[1]
+    gamma2 = x[2]
+    trust_region_sensitivity = x[3]
+    inner_maxiter = int(x[4])
+    initial_delta_scale = x[5]
+    
+    z_opt_temp, obj_vals_temp, history_temp, delta_vals_temp = trust_region_optimization(
+        z0=z0,
+        dofs_currents=stel.dofs_currents,
+        coils=stel,
+        particles=particles,
+        R=R,
+        r_init=r_init,
+        initial_values=initial_values,
+        maxtime=maxtime,
+        timesteps=timesteps,
+        n_segments=n_segments,
+        model=model,
+        grad_f_hi=grad_f_hi,
+        delta_max=delta_max,
+        gamma1=gamma1,
+        gamma2=gamma2,
+        trust_region_sensitivity=trust_region_sensitivity,
+        max_iter=30,
+        tol=1e-6,
+        loss_req=0.125,
+        inner_maxiter=inner_maxiter,
+        initial_delta_scale=initial_delta_scale
     )
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    return low_fidelity_value
+    
+    final_loss = obj_vals_temp[-1]
+    print(f"Meta Evaluation -- Hyperparameters: {x} --> Final High-Fidelity Loss: {final_loss:.6f}")
+    meta_loss_history.append(final_loss)
+    meta_x_history.append(x.copy())
+    return final_loss
 
-def callback_low(x, res=None):
-    global flag_value,iteration, obj_vals_low
+x0_meta = [0.2, 0.15, 6.5, 1.0, 50, 0.2]
+bounds_meta = [(0.1, 1.0),   # delta_max
+               (0.05, 0.5),  # gamma1
+               (1.0, 10.0),  # gamma2
+               (0.5, 2.0),   # trust_region_sensitivity
+               (10, 100),    # inner_maxiter
+               (0.1, 0.5)]   # initial_delta_scale
 
-    print("callback")
+res_meta = minimize(meta_objective, x0_meta, method='L-BFGS-B', bounds=bounds_meta, options={"maxiter": 20})
+print("Optimized hyperparameters:", res_meta.x)
 
-    print(f"Iteration {iteration}:")
-    print("Objective Function: {}".format(low_loss(x)))
-
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-    hf_val = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    obj_vals_low += [hf_val]
-
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    print(f"HighFidelity Step: HF Loss {hf_val} --- LF Loss {low_fidelity_value}")
-
-    iteration += 1
-
-res = minimize(low_loss, x0=all_dofs, method="L-BFGS-B", options={ 'maxiter': 40, "disp": False, "ftol": 1e-4, "gtol": 1e-4}, callback = callback_low, tol=1e-8)
-
-iteration = 0
-def low_loss_time(x):
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    return low_fidelity_value
-
-def callback_low_time(x, res=None):
-    global flag_value,iteration, obj_vals_low
-
-    print("callback")
-
-    print(f"Iteration {iteration}:")
-    print("Objective Function: {}".format(low_loss(x)))
-
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-    low_fidelity_value = low_fidelity_loss(dofs, stel.dofs_currents, stel, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    print(f"LF Loss {low_fidelity_value}")
-
-    iteration += 1
-
-t_low = time.time()
-res = minimize(low_loss_time, x0=all_dofs, method="L-BFGS-B", options={ 'maxiter': 40, "disp": False, "ftol": 1e-4, "gtol": 1e-4}, callback = callback_low_time, tol=1e-8)
-print(f"Low Time: {time.time() - t_low:.6f}s")
-
-
-if change_currents:
-    all_dofs = jnp.concatenate((jnp.ravel(stel.dofs), jnp.ravel(stel.currents)[:n_curves]))
-else:
-    all_dofs = jnp.ravel(stel.dofs)
-
-iteration = 0
-obj_vals_high = []
-
-def high_loss(x):
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-    high_fidelity_value = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    return high_fidelity_value
-
-def callback_high(x, res=None):
-    global flag_value, iteration, bias, obj_vals_high
-
-    print("callback")
-
-    print(f"Iteration {iteration}:")
-    print("Objective Function: {}".format(high_loss(x)))
-
-    dofs, currents = jax.lax.cond(
-        change_currents,
-        lambda _: (jnp.reshape(x[:len_dofs], shape=stel.dofs.shape), x[-n_curves:]),
-        lambda _: (jnp.reshape(x, shape=stel.dofs.shape), stel.currents[:n_curves]),
-        operand=None
-    )
-    hf_val = high_fidelity_loss(dofs, stel.dofs_currents, stel, particles, R, r_init, initial_values, maxtime, timesteps, n_segments, model)
-    obj_vals_high += [hf_val]
-    print(f"HighFidelity Step: HF Loss {hf_val}")
-
-    iteration += 1
-
-t_high = time.time()
-res = minimize(high_loss, x0=all_dofs, method="L-BFGS-B", options={ 'maxiter': 40, "disp": False, "ftol": 1e-4, "gtol": 1e-4}, callback = callback_high, tol=1e-8)
-print(f"High Time: {time.time() - t_high:.6f}s")
-
-
-plt.plot(obj_vals, label="Multifidelity Trust Region Optimization")
-plt.xlabel("Iteration")
-plt.ylabel("Loss")
-plt.title("Optimization Convergence Comparison")
+# --- Plot Meta-Optimization Loss Progress ---
+plt.figure()
+plt.plot(meta_loss_history, marker='o', label='Meta Optimization Loss')
+plt.xlabel("Meta Iteration")
+plt.ylabel("Final High-Fidelity Loss")
+plt.title("Meta Optimization Loss Progress")
 plt.legend()
 plt.grid()
-
-plt.plot(obj_vals_low, label="Low Fidelity Optimization", color="red")
-
-plt.plot(obj_vals_high, label="High Fidelity Optimization", color="green")
-
 plt.show()
+
+with open("parameterresults.txt", "w") as f:
+    f.write("Meta Optimization Results\n")
+    f.write("====================================\n")
+    f.write("Optimized hyperparameters: {}\n\n".format(res_meta.x))
+    f.write("Iteration, delta_max, gamma1, gamma2, trust_region_sensitivity, inner_maxiter, initial_delta_scale, Final Loss\n")
+    for i, (params, loss_val) in enumerate(zip(meta_x_history, meta_loss_history)):
+        f.write("{}, {:.4f}, {:.4f}, {:.4f}, {:.4f}, {}, {:.4f}, {:.6f}\n".format(
+            i, params[0], params[1], params[2], params[3], int(params[4]), params[5], loss_val))

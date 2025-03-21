@@ -65,7 +65,7 @@ def grad_step(s, z, low_fidelity_loss_z, high_fidelity_loss_z, grad_high_z, dofs
 
 #### INPUT PARAMETERS START HERE - NUMBER OF PARTICLES ####
 number_of_cores = 3
-number_of_particles_per_core = 8
+number_of_particles_per_core = 9
 os.environ["XLA_FLAGS"] = f'--xla_force_host_platform_device_count={number_of_cores}'
 print("JAX running on", [jax.devices()[i].platform.upper() for i in range(len(jax.devices()))])
 sys.path.insert(1, os.path.dirname(os.getcwd()))
@@ -127,7 +127,7 @@ else:
 def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, initial_values, 
                               maxtime, timesteps, n_segments, model, grad_f_hi,
                               delta_max=0.2, gamma1=0.15, gamma2=6.5, 
-                              trust_region_sensitivity=1.0, max_iter=15, tol=1e-6, loss_req=0.125):
+                              trust_region_sensitivity=1.0, max_iter=30, tol=1e-6, loss_req=0.125):
     z = z0
     iteration = 0
     delta = delta_max * 0.2
@@ -178,7 +178,7 @@ def trust_region_optimization(z0, dofs_currents, coils, particles, R, r_init, in
             jac=grad_step_partial,
             bounds=[(-delta, delta) for _ in z],
             method="L-BFGS-B",
-            options={"maxiter": 50, "disp": False, "ftol": 1e-4, "gtol": 1e-4},
+            options={"maxiter": 50, "disp": False},
             callback=callback
         )
         print(f"  L-BFGS-B completed | Time: {time.time() - t3:.6f}s")
